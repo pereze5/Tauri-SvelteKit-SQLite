@@ -1,0 +1,602 @@
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Project {
+    pub id: i64,
+    pub name: String,
+    pub craft_type: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Counter {
+    pub id: i64,
+    pub project_id: i64,
+    pub label: String,
+    pub value: i64,
+    pub counter_type: String,
+    pub sort_order: i64,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Session {
+    pub id: i64,
+    pub project_id: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub notes: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Pattern {
+    pub id: i64,
+    pub project_id: i64,
+    pub display_name: String,
+    pub file_path: String,
+    pub file_type: String,
+    pub current_page: i64,
+    pub last_position_note: String,
+    pub last_viewed_at: String,
+    pub metadata_json: String,
+}
+
+#[tauri::command]
+pub async fn create_project(
+    pool: tauri::State<'_, SqlitePool>,
+    name: String,
+    craft_type: String,
+) -> Result<Project, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO projects (name, craft_type)
+        VALUES (?1, ?2)
+        "#,
+    )
+    .bind(name)
+    .bind(craft_type)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let id = result.last_insert_rowid();
+
+    sqlx::query_as::<_, Project>(
+        r#"
+        SELECT id, name, craft_type, status, created_at
+        FROM projects
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_projects(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<Project>, String> {
+    sqlx::query_as::<_, Project>(
+        r#"
+        SELECT id, name, craft_type, status, created_at
+        FROM projects
+        ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_active_project(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        UPDATE project_state
+        SET active_project_id = ?1,
+            last_opened_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        "#,
+    )
+    .bind(project_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_project(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<Option<Project>, String> {
+    sqlx::query_as::<_, Project>(
+        r#"
+        SELECT p.id, p.name, p.craft_type, p.status, p.created_at
+        FROM projects p
+        JOIN project_state s ON s.active_project_id = p.id
+        WHERE s.id = 1
+        "#,
+    )
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_counter(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+    label: String,
+    counter_type: String,
+) -> Result<Counter, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO counters (project_id, label, counter_type)
+        VALUES (?1, ?2, ?3)
+        "#,
+    )
+    .bind(project_id)
+    .bind(label)
+    .bind(counter_type)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let id = result.last_insert_rowid();
+
+    sqlx::query_as::<_, Counter>(
+        r#"
+        SELECT id, project_id, label, value, counter_type, sort_order, updated_at
+        FROM counters
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_counters(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<Vec<Counter>, String> {
+    sqlx::query_as::<_, Counter>(
+        r#"
+        SELECT id, project_id, label, value, counter_type, sort_order, updated_at
+        FROM counters
+        WHERE project_id = ?1
+        ORDER BY sort_order ASC, id ASC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn increment_counter(
+    pool: tauri::State<'_, SqlitePool>,
+    counter_id: i64,
+    delta: i64,
+) -> Result<Counter, String> {
+    sqlx::query(
+        r#"
+        UPDATE counters
+        SET value = value + ?1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?2
+        "#,
+    )
+    .bind(delta)
+    .bind(counter_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Counter>(
+        r#"
+        SELECT id, project_id, label, value, counter_type, sort_order, updated_at
+        FROM counters
+        WHERE id = ?1
+        "#,
+    )
+    .bind(counter_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn start_session(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<Session, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO sessions (project_id)
+        VALUES (?1)
+        "#,
+    )
+    .bind(project_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let id = result.last_insert_rowid();
+
+    sqlx::query_as::<_, Session>(
+        r#"
+        SELECT id, project_id, started_at, ended_at, notes
+        FROM sessions
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn end_session(
+    pool: tauri::State<'_, SqlitePool>,
+    session_id: i64,
+    notes: String,
+) -> Result<Session, String> {
+    sqlx::query(
+        r#"
+        UPDATE sessions
+        SET ended_at = CURRENT_TIMESTAMP,
+            notes = ?1
+        WHERE id = ?2
+        "#,
+    )
+    .bind(notes)
+    .bind(session_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Session>(
+        r#"
+        SELECT id, project_id, started_at, ended_at, notes
+        FROM sessions
+        WHERE id = ?1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_sessions(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<Vec<Session>, String> {
+    sqlx::query_as::<_, Session>(
+        r#"
+        SELECT id, project_id, started_at, ended_at, notes
+        FROM sessions
+        WHERE project_id = ?1
+        ORDER BY started_at DESC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_pattern(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+    display_name: String,
+    file_path: String,
+    file_type: String,
+) -> Result<Pattern, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO patterns (project_id, display_name, file_path, file_type)
+        VALUES (?1, ?2, ?3, ?4)
+        "#,
+    )
+    .bind(project_id)
+    .bind(display_name)
+    .bind(file_path)
+    .bind(file_type)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let id = result.last_insert_rowid();
+
+    sqlx::query_as::<_, Pattern>(
+        r#"
+        SELECT id, project_id, display_name, file_path, file_type,
+               current_page, last_position_note, last_viewed_at, metadata_json
+        FROM patterns
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_patterns(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<Vec<Pattern>, String> {
+    sqlx::query_as::<_, Pattern>(
+        r#"
+        SELECT id, project_id, display_name, file_path, file_type,
+               current_page, last_position_note, last_viewed_at, metadata_json
+        FROM patterns
+        WHERE project_id = ?1
+        ORDER BY last_viewed_at DESC, id DESC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_pattern(
+    pool: tauri::State<'_, SqlitePool>,
+    pattern_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        DELETE FROM patterns
+        WHERE id = ?1
+        "#,
+    )
+    .bind(pattern_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_pattern_position(
+    pool: tauri::State<'_, SqlitePool>,
+    pattern_id: i64,
+    current_page: i64,
+    last_position_note: String,
+) -> Result<Pattern, String> {
+    sqlx::query(
+        r#"
+        UPDATE patterns
+        SET current_page = ?1,
+            last_position_note = ?2,
+            last_viewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?3
+        "#,
+    )
+    .bind(current_page)
+    .bind(last_position_note)
+    .bind(pattern_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Pattern>(
+        r#"
+        SELECT id, project_id, display_name, file_path, file_type,
+               current_page, last_position_note, last_viewed_at, metadata_json
+        FROM patterns
+        WHERE id = ?1
+        "#,
+    )
+    .bind(pattern_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct InventoryItem {
+    pub id: i64,
+    pub name: String,
+    pub supply_type: String,
+    pub brand: String,
+    pub color_name: String,
+    pub color_code: String,
+    pub quantity: f64,
+    pub unit: String,
+    pub notes: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[tauri::command]
+pub async fn add_inventory_item(
+    pool: tauri::State<'_, SqlitePool>,
+    name: String,
+    supply_type: String,
+    brand: String,
+    color_name: String,
+    color_code: String,
+    quantity: f64,
+    unit: String,
+    notes: String,
+) -> Result<InventoryItem, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO inventory_items
+        (name, supply_type, brand, color_name, color_code, quantity, unit, notes)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "#,
+    )
+    .bind(name)
+    .bind(supply_type)
+    .bind(brand)
+    .bind(color_name)
+    .bind(color_code)
+    .bind(quantity)
+    .bind(unit)
+    .bind(notes)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let id = result.last_insert_rowid();
+
+    sqlx::query_as::<_, InventoryItem>(
+        r#"
+        SELECT id, name, supply_type, brand, color_name, color_code,
+               quantity, unit, notes, created_at, updated_at
+        FROM inventory_items
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_inventory_items(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<Vec<InventoryItem>, String> {
+    sqlx::query_as::<_, InventoryItem>(
+        r#"
+        SELECT id, name, supply_type, brand, color_name, color_code,
+               quantity, unit, notes, created_at, updated_at
+        FROM inventory_items
+        ORDER BY supply_type ASC, name ASC
+        "#,
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_inventory_item(
+    pool: tauri::State<'_, SqlitePool>,
+    item_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        DELETE FROM inventory_items
+        WHERE id = ?1
+        "#,
+    )
+    .bind(item_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ProjectInventoryItem {
+    pub id: i64,
+    pub project_id: i64,
+    pub inventory_item_id: i64,
+    pub quantity_allocated: f64,
+    pub notes: String,
+    pub item_name: String,
+    pub supply_type: String,
+    pub brand: String,
+    pub color_name: String,
+    pub color_code: String,
+    pub unit: String,
+}
+
+#[tauri::command]
+pub async fn link_inventory_to_project(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+    inventory_item_id: i64,
+    quantity_allocated: f64,
+    notes: String,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        INSERT INTO project_inventory
+        (project_id, inventory_item_id, quantity_allocated, notes)
+        VALUES (?1, ?2, ?3, ?4)
+        "#,
+    )
+    .bind(project_id)
+    .bind(inventory_item_id)
+    .bind(quantity_allocated)
+    .bind(notes)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_project_inventory(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<Vec<ProjectInventoryItem>, String> {
+    sqlx::query_as::<_, ProjectInventoryItem>(
+        r#"
+        SELECT
+            pi.id,
+            pi.project_id,
+            pi.inventory_item_id,
+            pi.quantity_allocated,
+            pi.notes,
+            ii.name AS item_name,
+            ii.supply_type,
+            ii.brand,
+            ii.color_name,
+            ii.color_code,
+            ii.unit
+        FROM project_inventory pi
+        JOIN inventory_items ii ON ii.id = pi.inventory_item_id
+        WHERE pi.project_id = ?1
+        ORDER BY ii.supply_type ASC, ii.name ASC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_project_inventory_link(
+    pool: tauri::State<'_, SqlitePool>,
+    project_inventory_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        DELETE FROM project_inventory
+        WHERE id = ?1
+        "#,
+    )
+    .bind(project_inventory_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
