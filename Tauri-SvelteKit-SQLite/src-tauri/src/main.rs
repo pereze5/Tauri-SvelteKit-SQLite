@@ -33,6 +33,14 @@ async fn main() {
             commands::link_inventory_to_project,
             commands::list_project_inventory,
             commands::remove_project_inventory_link,
+            commands::update_project,
+            commands::delete_project,
+            commands::update_counter,
+            commands::delete_counter,
+            commands::update_inventory_item,
+            commands::update_project_inventory_link,
+            commands::get_shopping_list,
+            commands::update_pattern_metadata,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

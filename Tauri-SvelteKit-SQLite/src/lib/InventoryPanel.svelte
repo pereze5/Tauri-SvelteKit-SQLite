@@ -27,6 +27,15 @@
   let quantity = 1;
   let unit = "skein";
   let notes = "";
+  let editingItemId: number | null = null;
+  let editName = "";
+  let editSupplyType = "yarn";
+  let editBrand = "";
+  let editColorName = "";
+  let editColorCode = "";
+  let editQuantity = 1;
+  let editUnit = "";
+  let editNotes = "";
 
   async function loadItems() {
     items = await invoke<InventoryItem[]>("list_inventory_items");
@@ -79,6 +88,46 @@
     }
   }
 
+  function startEditingItem(item: InventoryItem) {
+  editingItemId = item.id;
+  editName = item.name;
+  editSupplyType = item.supply_type;
+  editBrand = item.brand;
+  editColorName = item.color_name;
+  editColorCode = item.color_code;
+  editQuantity = item.quantity;
+  editUnit = item.unit;
+  editNotes = item.notes;
+}
+
+function cancelEditingItem() {
+  editingItemId = null;
+}
+
+async function saveInventoryEdit(itemId: number) {
+  error = "";
+
+  if (!editName.trim()) {
+    error = "Item name is required.";
+    return;
+  }
+
+  await invoke<InventoryItem>("update_inventory_item", {
+    itemId,
+    name: editName.trim(),
+    supplyType: editSupplyType,
+    brand: editBrand,
+    colorName: editColorName,
+    colorCode: editColorCode,
+    quantity: Number(editQuantity),
+    unit: editUnit,
+    notes: editNotes
+  });
+
+  cancelEditingItem();
+  await loadItems();
+}
+
   onMount(loadItems);
 </script>
 
@@ -119,27 +168,51 @@
   {:else}
     <ul>
       {#each items as item}
-        <li>
-          <strong>{item.name}</strong>
-          ({item.supply_type})
-          <br />
-          {item.brand}
-          {#if item.color_name}
-            — {item.color_name}
-          {/if}
-          {#if item.color_code}
-            [{item.color_code}]
-          {/if}
-          <br />
-          Quantity: {item.quantity} {item.unit}
-          {#if item.notes}
-            <br />
-            Notes: {item.notes}
-          {/if}
-          <br />
-          <button on:click={() => deleteItem(item.id)}>Remove</button>
-        </li>
-      {/each}
+  <li>
+    {#if editingItemId === item.id}
+      <input bind:value={editName} />
+
+      <select bind:value={editSupplyType}>
+        <option value="yarn">Yarn</option>
+        <option value="floss">Floss</option>
+        <option value="fabric">Fabric</option>
+        <option value="needle">Needle</option>
+        <option value="notion">Notion</option>
+        <option value="other">Other</option>
+      </select>
+
+      <input bind:value={editBrand} placeholder="Brand" />
+      <input bind:value={editColorName} placeholder="Color name" />
+      <input bind:value={editColorCode} placeholder="Color code" />
+      <input type="number" min="0" step="0.01" bind:value={editQuantity} />
+      <input bind:value={editUnit} placeholder="Unit" />
+      <input bind:value={editNotes} placeholder="Notes" />
+
+      <button on:click={() => saveInventoryEdit(item.id)}>Save</button>
+      <button on:click={cancelEditingItem}>Cancel</button>
+    {:else}
+      <strong>{item.name}</strong>
+      ({item.supply_type})
+      <br />
+      {item.brand}
+      {#if item.color_name}
+        — {item.color_name}
+      {/if}
+      {#if item.color_code}
+        [{item.color_code}]
+      {/if}
+      <br />
+      Quantity: {item.quantity} {item.unit}
+      {#if item.notes}
+        <br />
+        Notes: {item.notes}
+      {/if}
+      <br />
+      <button on:click={() => startEditingItem(item)}>Edit</button>
+      <button on:click={() => deleteItem(item.id)}>Remove</button>
+    {/if}
+  </li>
+{/each}
     </ul>
   {/if}
 </section>

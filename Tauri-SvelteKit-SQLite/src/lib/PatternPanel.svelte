@@ -119,6 +119,41 @@
     }
   }
 
+  type PatternMetadata = {
+  designer?: string;
+  source?: string;
+  needle_size?: string;
+  gauge?: string;
+  yarn_requirement?: string;
+  fabric_count?: string;
+  size?: string;
+  notes?: string;
+  };
+
+  function parseMetadata(pattern: Pattern): PatternMetadata {
+  try {
+    return JSON.parse(pattern.metadata_json || "{}");
+  } catch {
+    return {};
+  }
+}
+
+async function savePatternMetadata(pattern: Pattern, metadata: PatternMetadata) {
+  error = "";
+
+  try {
+    await invoke<Pattern>("update_pattern_metadata", {
+      patternId: pattern.id,
+      metadataJson: JSON.stringify(metadata)
+    });
+
+    await loadPatterns();
+  } catch (e) {
+    console.error(e);
+    error = String(e);
+  }
+}
+
   $: if (projectId) {
     loadPatterns();
   }
@@ -140,6 +175,7 @@
   {:else}
     <ul>
       {#each patterns as pattern}
+      {@const metadata = parseMetadata(pattern)}
         <li>
           <strong>{pattern.display_name}</strong>
           <br />
@@ -149,7 +185,11 @@
 
           <label>
             Page:
-            <input type="number" min="1" bind:value={pattern.current_page} />
+            <input
+              type="number"
+              min="1"
+              bind:value={pattern.current_page}
+            />
           </label>
 
           <br />
@@ -168,6 +208,55 @@
             Save position
           </button>
 
+          <h4>Pattern metadata</h4>
+
+          <input
+            bind:value={metadata.designer}
+            placeholder="Designer"
+          />
+
+          <input
+            bind:value={metadata.source}
+            placeholder="Source"
+          />
+
+          <input
+            bind:value={metadata.needle_size}
+            placeholder="Needle size"
+          />
+
+          <input
+            bind:value={metadata.gauge}
+            placeholder="Gauge"
+          />
+
+          <input
+            bind:value={metadata.yarn_requirement}
+            placeholder="Yarn requirement"
+          />
+
+          <input
+            bind:value={metadata.fabric_count}
+            placeholder="Fabric count"
+          />
+
+          <input
+            bind:value={metadata.size}
+            placeholder="Size"
+          />
+
+          <input
+            bind:value={metadata.notes}
+            placeholder="Metadata notes"
+          />
+
+          <br />
+
+          <button on:click={() => savePatternMetadata(pattern, metadata)}>
+            Save metadata
+          </button>
+
+          <br />
           <br />
 
           <small>{pattern.file_path}</small>

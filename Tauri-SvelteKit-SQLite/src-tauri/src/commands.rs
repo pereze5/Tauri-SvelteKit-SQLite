@@ -600,3 +600,287 @@ pub async fn remove_project_inventory_link(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn update_project(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+    name: String,
+    craft_type: String,
+    status: String,
+) -> Result<Project, String> {
+    sqlx::query(
+        r#"
+        UPDATE projects
+        SET name = ?1,
+            craft_type = ?2,
+            status = ?3
+        WHERE id = ?4
+        "#,
+    )
+    .bind(name)
+    .bind(craft_type)
+    .bind(status)
+    .bind(project_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Project>(
+        r#"
+        SELECT id, name, craft_type, status, created_at
+        FROM projects
+        WHERE id = ?1
+        "#,
+    )
+    .bind(project_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_project(
+    pool: tauri::State<'_, SqlitePool>,
+    project_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        DELETE FROM projects
+        WHERE id = ?1
+        "#,
+    )
+    .bind(project_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        r#"
+        UPDATE project_state
+        SET active_project_id = NULL
+        WHERE active_project_id = ?1
+        "#,
+    )
+    .bind(project_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_counter(
+    pool: tauri::State<'_, SqlitePool>,
+    counter_id: i64,
+    label: String,
+    value: i64,
+    counter_type: String,
+) -> Result<Counter, String> {
+    sqlx::query(
+        r#"
+        UPDATE counters
+        SET label = ?1,
+            value = ?2,
+            counter_type = ?3,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?4
+        "#,
+    )
+    .bind(label)
+    .bind(value)
+    .bind(counter_type)
+    .bind(counter_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Counter>(
+        r#"
+        SELECT id, project_id, label, value, counter_type, sort_order, updated_at
+        FROM counters
+        WHERE id = ?1
+        "#,
+    )
+    .bind(counter_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_counter(
+    pool: tauri::State<'_, SqlitePool>,
+    counter_id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        DELETE FROM counters
+        WHERE id = ?1
+        "#,
+    )
+    .bind(counter_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_inventory_item(
+    pool: tauri::State<'_, SqlitePool>,
+    item_id: i64,
+    name: String,
+    supply_type: String,
+    brand: String,
+    color_name: String,
+    color_code: String,
+    quantity: f64,
+    unit: String,
+    notes: String,
+) -> Result<InventoryItem, String> {
+    sqlx::query(
+        r#"
+        UPDATE inventory_items
+        SET name = ?1,
+            supply_type = ?2,
+            brand = ?3,
+            color_name = ?4,
+            color_code = ?5,
+            quantity = ?6,
+            unit = ?7,
+            notes = ?8,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?9
+        "#,
+    )
+    .bind(name)
+    .bind(supply_type)
+    .bind(brand)
+    .bind(color_name)
+    .bind(color_code)
+    .bind(quantity)
+    .bind(unit)
+    .bind(notes)
+    .bind(item_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, InventoryItem>(
+        r#"
+        SELECT id, name, supply_type, brand, color_name, color_code,
+               quantity, unit, notes, created_at, updated_at
+        FROM inventory_items
+        WHERE id = ?1
+        "#,
+    )
+    .bind(item_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_project_inventory_link(
+    pool: tauri::State<'_, SqlitePool>,
+    project_inventory_id: i64,
+    quantity_allocated: f64,
+    notes: String,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        UPDATE project_inventory
+        SET quantity_allocated = ?1,
+            notes = ?2
+        WHERE id = ?3
+        "#,
+    )
+    .bind(quantity_allocated)
+    .bind(notes)
+    .bind(project_inventory_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ShoppingListItem {
+    pub inventory_item_id: i64,
+    pub item_name: String,
+    pub supply_type: String,
+    pub brand: String,
+    pub color_name: String,
+    pub color_code: String,
+    pub inventory_quantity: f64,
+    pub allocated_quantity: f64,
+    pub shortage_quantity: f64,
+    pub unit: String,
+}
+
+#[tauri::command]
+pub async fn get_shopping_list(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<Vec<ShoppingListItem>, String> {
+    sqlx::query_as::<_, ShoppingListItem>(
+        r#"
+        SELECT
+            ii.id AS inventory_item_id,
+            ii.name AS item_name,
+            ii.supply_type,
+            ii.brand,
+            ii.color_name,
+            ii.color_code,
+            ii.quantity AS inventory_quantity,
+            COALESCE(SUM(pi.quantity_allocated), 0) AS allocated_quantity,
+            COALESCE(SUM(pi.quantity_allocated), 0) - ii.quantity AS shortage_quantity,
+            ii.unit
+        FROM inventory_items ii
+        LEFT JOIN project_inventory pi ON pi.inventory_item_id = ii.id
+        GROUP BY ii.id
+        HAVING shortage_quantity > 0
+        ORDER BY ii.supply_type ASC, ii.name ASC
+        "#,
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_pattern_metadata(
+    pool: tauri::State<'_, SqlitePool>,
+    pattern_id: i64,
+    metadata_json: String,
+) -> Result<Pattern, String> {
+    sqlx::query(
+        r#"
+        UPDATE patterns
+        SET metadata_json = ?1,
+            last_viewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?2
+        "#,
+    )
+    .bind(metadata_json)
+    .bind(pattern_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Pattern>(
+        r#"
+        SELECT id, project_id, display_name, file_path, file_type,
+               current_page, last_position_note, last_viewed_at, metadata_json
+        FROM patterns
+        WHERE id = ?1
+        "#,
+    )
+    .bind(pattern_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}

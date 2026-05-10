@@ -18,6 +18,11 @@
   let label = "Row";
   let error = "";
 
+  let editingCounterId: number | null = null;
+  let editLabel = "";
+  let editValue = 0;
+  let editCounterType = "row";
+
   async function loadCounters() {
     counters = await invoke<Counter[]>("list_counters", {
       projectId
@@ -53,6 +58,58 @@
     );
   }
 
+  function startEditingCounter(counter: Counter) {
+  editingCounterId = counter.id;
+  editLabel = counter.label;
+  editValue = counter.value;
+  editCounterType = counter.counter_type;
+}
+
+function cancelEditingCounter() {
+  editingCounterId = null;
+  editLabel = "";
+  editValue = 0;
+  editCounterType = "row";
+}
+
+async function saveCounterEdit(counterId: number) {
+  error = "";
+
+  if (!editLabel.trim()) {
+    error = "Counter label is required.";
+    return;
+  }
+
+  await invoke<Counter>("update_counter", {
+    counterId,
+    label: editLabel.trim(),
+    value: Number(editValue),
+    counterType: editCounterType
+  });
+
+  cancelEditingCounter();
+  await loadCounters();
+}
+
+async function resetCounter(counter: Counter) {
+  await invoke<Counter>("update_counter", {
+    counterId: counter.id,
+    label: counter.label,
+    value: 0,
+    counterType: counter.counter_type
+  });
+
+  await loadCounters();
+}
+
+async function deleteCounter(counterId: number) {
+  const confirmed = confirm("Delete this counter?");
+  if (!confirmed) return;
+
+  await invoke("delete_counter", { counterId });
+  await loadCounters();
+}
+
   $: if (projectId) {
     loadCounters();
   }
@@ -77,13 +134,33 @@
   {:else}
     <ul>
       {#each counters as counter}
-        <li>
-          <strong>{counter.label}</strong>: {counter.value}
+  <li>
+    {#if editingCounterId === counter.id}
+      <input bind:value={editLabel} />
 
-          <button on:click={() => changeCounter(counter.id, -1)}>-</button>
-          <button on:click={() => changeCounter(counter.id, 1)}>+</button>
-        </li>
-      {/each}
+      <input type="number" bind:value={editValue} />
+
+      <select bind:value={editCounterType}>
+        <option value="row">Row</option>
+        <option value="round">Round</option>
+        <option value="repeat">Repeat</option>
+        <option value="stitch">Stitch</option>
+        <option value="custom">Custom</option>
+      </select>
+
+      <button on:click={() => saveCounterEdit(counter.id)}>Save</button>
+      <button on:click={cancelEditingCounter}>Cancel</button>
+    {:else}
+      <strong>{counter.label}</strong>: {counter.value}
+
+      <button on:click={() => changeCounter(counter.id, -1)}>-</button>
+      <button on:click={() => changeCounter(counter.id, 1)}>+</button>
+      <button on:click={() => startEditingCounter(counter)}>Edit</button>
+      <button on:click={() => resetCounter(counter)}>Reset</button>
+      <button on:click={() => deleteCounter(counter.id)}>Delete</button>
+    {/if}
+  </li>
+{/each}
     </ul>
   {/if}
 </section>
