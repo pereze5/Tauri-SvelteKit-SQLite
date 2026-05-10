@@ -28,6 +28,10 @@ pub struct Session {
     pub started_at: String,
     pub ended_at: Option<String>,
     pub notes: String,
+    pub current_page: i64,
+    pub position_note: String,
+    pub counter_snapshot_json: String,
+    pub pattern_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -235,7 +239,9 @@ pub async fn start_session(
 
     sqlx::query_as::<_, Session>(
         r#"
-        SELECT id, project_id, started_at, ended_at, notes
+        SELECT id, project_id, started_at, ended_at, notes,
+               current_page, position_note,
+               counter_snapshot_json, pattern_id
         FROM sessions
         WHERE id = ?1
         "#,
@@ -251,24 +257,56 @@ pub async fn end_session(
     pool: tauri::State<'_, SqlitePool>,
     session_id: i64,
     notes: String,
+    current_page: i64,
+    position_note: String,
+    pattern_id: Option<i64>,
+    counter_snapshot_json: String,
 ) -> Result<Session, String> {
     sqlx::query(
         r#"
         UPDATE sessions
         SET ended_at = CURRENT_TIMESTAMP,
-            notes = ?1
-        WHERE id = ?2
+            notes = ?1,
+            current_page = ?2,
+            position_note = ?3,
+            pattern_id = ?4,
+            counter_snapshot_json = ?5
+        WHERE id = ?6
         "#,
     )
-    .bind(notes)
+    .bind(&notes)
+    .bind(current_page)
+    .bind(&position_note)
+    .bind(pattern_id)
+    .bind(&counter_snapshot_json)
     .bind(session_id)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
 
+    if let Some(pattern_id_value) = pattern_id {
+        sqlx::query(
+            r#"
+            UPDATE patterns
+            SET current_page = ?1,
+                last_position_note = ?2,
+                last_viewed_at = CURRENT_TIMESTAMP
+            WHERE id = ?3
+            "#,
+        )
+        .bind(current_page)
+        .bind(&position_note)
+        .bind(pattern_id_value)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
     sqlx::query_as::<_, Session>(
         r#"
-        SELECT id, project_id, started_at, ended_at, notes
+        SELECT id, project_id, started_at, ended_at, notes,
+               current_page, position_note,
+               counter_snapshot_json, pattern_id
         FROM sessions
         WHERE id = ?1
         "#,
@@ -286,7 +324,9 @@ pub async fn list_sessions(
 ) -> Result<Vec<Session>, String> {
     sqlx::query_as::<_, Session>(
         r#"
-        SELECT id, project_id, started_at, ended_at, notes
+        SELECT id, project_id, started_at, ended_at, notes,
+               current_page, position_note,
+               counter_snapshot_json, pattern_id
         FROM sessions
         WHERE project_id = ?1
         ORDER BY started_at DESC
@@ -884,3 +924,38 @@ pub async fn update_pattern_metadata(
     .await
     .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn update_session_notes(
+    pool: tauri::State<'_, SqlitePool>,
+    session_id: i64,
+    notes: String,
+) -> Result<Session, String> {
+    sqlx::query(
+        r#"
+        UPDATE sessions
+        SET notes = ?1
+        WHERE id = ?2
+        "#,
+    )
+    .bind(notes)
+    .bind(session_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Session>(
+        r#"
+        SELECT id, project_id, started_at, ended_at, notes,
+               current_page, position_note,
+               counter_snapshot_json, pattern_id
+        FROM sessions
+        WHERE id = ?1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+

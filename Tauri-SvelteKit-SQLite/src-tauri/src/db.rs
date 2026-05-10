@@ -49,6 +49,10 @@ pub async fn init_db() -> SqlitePool {
         started_at TEXT DEFAULT CURRENT_TIMESTAMP,
         ended_at TEXT,
         notes TEXT DEFAULT '',
+        current_page INTEGER DEFAULT 1,
+        position_note TEXT DEFAULT '',
+        counter_snapshot_json TEXT DEFAULT '{}',
+        pattern_id INTEGER,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 

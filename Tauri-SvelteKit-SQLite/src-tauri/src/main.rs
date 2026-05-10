@@ -41,6 +41,7 @@ async fn main() {
             commands::update_project_inventory_link,
             commands::get_shopping_list,
             commands::update_pattern_metadata,
+            commands::update_session_notes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

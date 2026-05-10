@@ -2,6 +2,4 @@
   import ProjectPanel from "$lib/ProjectPanel.svelte";
 </script>
 
-<main>
-  <ProjectPanel />
-</main>
+<ProjectPanel />
